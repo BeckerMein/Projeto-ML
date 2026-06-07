@@ -1,0 +1,2 @@
+"""Pipeline INMET Pernambuco."""
+
