@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--region", default="PE", help="UF alvo para o modo uf.")
     parser.add_argument("--mode", choices=["uf", "buffer"], default="uf", help="Modo de selecao geografica.")
     parser.add_argument("--skip-download", action="store_true", help="Usa apenas ZIPs/CSVs ja presentes em data/raw.")
+    parser.add_argument("--use-extracted", action="store_true", help="Usa CSVs ja presentes em data/extracted sem reextrair ZIPs.")
     parser.add_argument("--solar-max-kj-m2", type=float, default=5000.0, help="Limite fisico/configuravel para radiacao horaria.")
     parser.add_argument("--wind-max-ms", type=float, default=75.0, help="Limite fisico/configuravel para vento horario.")
     parser.add_argument("--nighttime-solar-policy", choices=["nan", "zero"], default="nan")
@@ -71,8 +72,12 @@ def main() -> None:
     ensure_directories()
 
     logging.info("Iniciando pipeline INMET: %s-%s, modo=%s", config.start_year, config.end_year, config.mode)
-    archives = download_inmet_archives(config, skip_download=args.skip_download)
-    csv_files = extract_archives(config, archives)
+    if args.use_extracted:
+        logging.info("Usando CSVs ja extraidos em %s", config.extracted_dir)
+        csv_files = sorted(config.extracted_dir.rglob("*.csv"))
+    else:
+        archives = download_inmet_archives(config, skip_download=args.skip_download)
+        csv_files = extract_archives(config, archives)
     if not csv_files:
         raise RuntimeError(
             "Nenhum CSV encontrado. Baixe os ZIPs anuais no portal do INMET e coloque-os em data/raw/."
@@ -89,4 +94,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

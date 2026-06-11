@@ -19,6 +19,22 @@ LOGGER = logging.getLogger(__name__)
 ENCODINGS = ("utf-8-sig", "latin1", "iso-8859-1", "cp1252")
 
 
+def filter_csv_files_for_region(csv_files: list[Path], config: PipelineConfig) -> list[Path]:
+    """Use filename hints to avoid parsing the whole country when mode=uf."""
+
+    if config.mode.lower() != "uf":
+        return csv_files
+
+    token = f"_{config.region.upper()}_"
+    selected = [path for path in csv_files if token in path.name.upper()]
+    if selected:
+        LOGGER.info("Pre-filtro por UF no nome do arquivo: %s/%s CSVs", len(selected), len(csv_files))
+        return selected
+
+    LOGGER.warning("Pre-filtro por UF nao encontrou arquivos; lendo todos os CSVs como fallback.")
+    return csv_files
+
+
 @dataclass
 class InmetMetadata:
     station_code: str | None = None
@@ -61,6 +77,21 @@ def parse_decimal(value: object) -> float | None:
         return float(text)
     except ValueError:
         return None
+
+
+def infer_city_from_filename(path: Path, station_code: str | None) -> str | None:
+    """Infer city/station locality from INMET filename when header lacks MUNICIPIO."""
+
+    stem = path.stem.upper()
+    if station_code and station_code.upper() in stem:
+        after_code = stem.split(station_code.upper(), 1)[1].lstrip("_")
+    else:
+        after_code = stem
+    match = re.match(r"(.+?)_\d{2}-\d{2}-\d{4}", after_code)
+    if not match:
+        return None
+    city = match.group(1).replace("_", " ").strip()
+    return city or None
 
 
 def find_table_start(lines: list[str]) -> int:
@@ -154,7 +185,8 @@ def build_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     date_text = df["date_raw"].astype(str).str.strip()
     hour_text = df["hour_raw"].map(coerce_hour)
     timestamp_text = date_text + " " + hour_text.fillna("00:00:00")
-    timestamp_utc = pd.to_datetime(timestamp_text, dayfirst=True, errors="coerce", utc=False)
+    iso_date_share = date_text.str.match(r"^\d{4}-\d{2}-\d{2}$", na=False).mean()
+    timestamp_utc = pd.to_datetime(timestamp_text, dayfirst=iso_date_share < 0.5, errors="coerce", utc=False)
     if timestamp_utc.isna().all():
         timestamp_utc = pd.to_datetime(timestamp_text, errors="coerce", utc=False)
 
@@ -197,17 +229,18 @@ def read_inmet_csv(path: Path) -> pd.DataFrame:
     for column in ["wind_speed_10m_ms", "solar_radiation_kj_m2"]:
         df[column] = (
             df[column]
-            .astype(str)
+            .astype("string")
             .str.strip()
-            .replace({value: np.nan for value in MISSING_VALUES})
             .str.replace(",", ".", regex=False)
+            .replace({value: np.nan for value in MISSING_VALUES})
         )
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
     df = build_timestamps(df)
+    inferred_city = metadata.city or infer_city_from_filename(path, metadata.station_code)
     df["station_code"] = metadata.station_code
-    df["station_name"] = metadata.station_name
-    df["city"] = metadata.city
+    df["station_name"] = metadata.station_name or inferred_city
+    df["city"] = inferred_city
     df["state"] = metadata.state
     df["latitude"] = metadata.latitude
     df["longitude"] = metadata.longitude
@@ -239,6 +272,7 @@ def read_inmet_csv(path: Path) -> pd.DataFrame:
 def parse_many_csvs(csv_files: list[Path], config: PipelineConfig) -> pd.DataFrame:
     """Parse many INMET CSV files and write a raw standardized parquet."""
 
+    csv_files = filter_csv_files_for_region(csv_files, config)
     frames: list[pd.DataFrame] = []
     for path in tqdm(csv_files, desc="Lendo CSVs INMET"):
         try:
@@ -251,8 +285,8 @@ def parse_many_csvs(csv_files: list[Path], config: PipelineConfig) -> pd.DataFra
 
     hourly = pd.concat(frames, ignore_index=True)
     hourly = hourly.drop_duplicates(subset=["station_code", "timestamp_utc"])
-    config.interim_dir.mkdir(parents=True, exist_ok=True)
-    output = config.interim_dir / "inmet_hourly_standardized.parquet"
+    config.silver_dir.mkdir(parents=True, exist_ok=True)
+    output = config.silver_dir / "inmet_hourly_standardized.parquet"
     hourly.to_parquet(output, index=False)
     LOGGER.info("Base horaria padronizada salva em %s (%s linhas)", output, len(hourly))
     return hourly

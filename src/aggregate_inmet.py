@@ -39,7 +39,8 @@ def aggregate_daily(hourly: pd.DataFrame, config: PipelineConfig) -> pd.DataFram
     daily["missing_rate_wind"] = daily["missing_rate_wind"].clip(0, 1)
     daily["missing_rate_solar"] = daily["missing_rate_solar"].clip(0, 1)
 
-    output = config.processed_dir / "inmet_pe_daily.csv"
+    config.gold_dir.mkdir(parents=True, exist_ok=True)
+    output = config.gold_dir / "inmet_pe_daily.csv"
     daily.to_csv(output, index=False)
     LOGGER.info("Base diaria salva em %s (%s linhas)", output, len(daily))
     return daily
@@ -61,7 +62,8 @@ def aggregate_annual(daily: pd.DataFrame, config: PipelineConfig) -> pd.DataFram
         )
         .reset_index()
     )
-    output = config.processed_dir / "inmet_pe_station_annual_summary.csv"
+    config.gold_dir.mkdir(parents=True, exist_ok=True)
+    output = config.gold_dir / "inmet_pe_station_annual_summary.csv"
     annual.to_csv(output, index=False)
     LOGGER.info("Resumo anual salvo em %s", output)
     return annual
@@ -83,7 +85,8 @@ def aggregate_historical(daily: pd.DataFrame, config: PipelineConfig) -> pd.Data
         )
         .reset_index()
     )
-    output = config.processed_dir / "inmet_pe_station_historical_summary.csv"
+    config.gold_dir.mkdir(parents=True, exist_ok=True)
+    output = config.gold_dir / "inmet_pe_station_historical_summary.csv"
     historical.to_csv(output, index=False)
     LOGGER.info("Resumo historico salvo em %s", output)
     return historical
@@ -96,4 +99,3 @@ def run_aggregations(hourly: pd.DataFrame, config: PipelineConfig) -> tuple[pd.D
     annual = aggregate_annual(daily, config)
     historical = aggregate_historical(daily, config)
     return daily, annual, historical
-

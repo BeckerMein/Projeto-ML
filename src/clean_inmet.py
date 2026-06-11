@@ -29,6 +29,8 @@ def build_station_catalog(hourly: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
+    for column in ["first_year_available", "last_year_available"]:
+        catalog[column] = pd.to_numeric(catalog[column], errors="coerce").astype("Int64")
     return catalog
 
 
@@ -48,8 +50,8 @@ def select_stations(catalog: pd.DataFrame, config: PipelineConfig) -> pd.DataFra
         raise ValueError("Modo geografico invalido. Use 'uf' ou 'buffer'.")
 
     selected = selected.sort_values(["state", "city", "station_code"])
-    output = config.processed_dir / "stations_selected.csv"
-    config.processed_dir.mkdir(parents=True, exist_ok=True)
+    output = config.silver_dir / "stations_selected.csv"
+    config.silver_dir.mkdir(parents=True, exist_ok=True)
     selected.to_csv(output, index=False)
     LOGGER.info("Estacoes selecionadas salvas em %s (%s estacoes)", output, len(selected))
     return selected
@@ -149,12 +151,11 @@ def clean_hourly_data(hourly: pd.DataFrame, config: PipelineConfig) -> pd.DataFr
         clean.loc[clean["flag_outlier_wind"], "wind_speed_10m_ms"] = np.nan
         clean.loc[clean["flag_outlier_solar"], "solar_radiation_kj_m2"] = np.nan
 
-    config.processed_dir.mkdir(parents=True, exist_ok=True)
-    flagged_path = config.processed_dir / "inmet_pe_hourly_flagged.parquet"
-    clean_path = config.processed_dir / "inmet_pe_hourly_clean.parquet"
+    config.silver_dir.mkdir(parents=True, exist_ok=True)
+    flagged_path = config.silver_dir / "inmet_pe_hourly_flagged.parquet"
+    clean_path = config.silver_dir / "inmet_pe_hourly_clean.parquet"
     df.to_parquet(flagged_path, index=False)
     clean.to_parquet(clean_path, index=False)
     LOGGER.info("Base horaria com flags salva em %s", flagged_path)
     LOGGER.info("Base horaria limpa salva em %s", clean_path)
     return clean
-

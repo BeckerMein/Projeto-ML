@@ -18,8 +18,10 @@ Na data de criacao deste projeto, a pagina lista arquivos anuais de estacoes aut
 data/
   raw/          ZIPs ou CSVs baixados manualmente ou pelo pipeline
   extracted/    CSVs extraidos dos ZIPs
-  interim/      bases intermediarias padronizadas
-  processed/    bases finais tratadas
+  silver/       camada prata: dados padronizados, selecionados e limpos
+  gold/         camada ouro: bases agregadas e normalizadas para analise/ML
+  interim/      legado/espaco para bases intermediarias exploratorias
+  processed/    legado/espaco para saidas finais antigas
 notebooks/      espaco para exploracao opcional
 reports/        CSVs e PNGs de qualidade
 src/            codigo modular do pipeline
@@ -65,21 +67,41 @@ python -m src.main --start-year 2003 --end-year 2025 --skip-download
 
 Tambem e aceito colocar CSVs ja extraidos diretamente em `data/raw/`.
 
+Quando os CSVs ja estiverem em `data/extracted/`, pule download e extracao e gere diretamente as camadas silver/gold:
+
+```bash
+python -m src.main --start-year 2003 --end-year 2025 --region PE --mode uf --use-extracted
+```
+
 ## Arquivos Gerados
 
-`data/processed/stations_selected.csv`: estacoes selecionadas com codigo, nome, municipio, UF, latitude, longitude, altitude e anos disponiveis.
+`data/silver/stations_selected.csv`: estacoes selecionadas com codigo, nome, municipio, UF, latitude, longitude, altitude e anos disponiveis.
 
-`data/processed/inmet_pe_hourly_flagged.parquet`: base horaria padronizada com flags de qualidade.
+`data/silver/inmet_hourly_standardized.parquet`: base horaria padronizada apos leitura robusta dos CSVs do INMET.
 
-`data/processed/inmet_pe_hourly_clean.parquet`: base horaria limpa. Por padrao, valores invalidos e outliers marcados sao convertidos para `NaN`.
+`data/silver/inmet_pe_hourly_flagged.parquet`: base horaria padronizada com flags de qualidade.
 
-`data/processed/inmet_pe_daily.csv`: agregacao diaria por estacao, com irradiacao solar diaria, vento medio, vento desvio padrao, horas validas e taxas de ausencia.
+`data/silver/inmet_pe_hourly_clean.parquet`: base horaria limpa. Por padrao, valores invalidos e outliers marcados sao convertidos para `NaN`.
 
-`data/processed/inmet_pe_station_annual_summary.csv`: resumo anual por estacao e ano.
+`data/gold/inmet_pe_daily.csv`: agregacao diaria por estacao, com irradiacao solar diaria, vento medio, vento desvio padrao, horas validas e taxas de ausencia.
 
-`data/processed/inmet_pe_station_historical_summary.csv`: resumo historico por estacao.
+`data/gold/inmet_pe_station_annual_summary.csv`: resumo anual por estacao e ano.
 
-`data/processed/ml_dataset_station_day.csv`: base pronta para ML, com uma linha por estacao-dia e features ciclicas de mes e dia do ano.
+`data/gold/inmet_pe_station_historical_summary.csv`: resumo historico por estacao.
+
+`data/gold/ml_dataset_station_day.csv`: base pronta para ML, com uma linha por estacao-dia e features ciclicas de mes e dia do ano.
+
+`data/gold/ml_dataset_station_day_normalized.csv`: versao gold com features numericas normalizadas por min-max.
+
+`data/gold/normalization_params.csv`: parametros usados na normalizacao min-max.
+
+## Modelo Medalhao
+
+Neste projeto, a camada bronze corresponde aos arquivos originais em `data/raw/` e aos CSVs extraidos em `data/extracted/`. Esses arquivos devem ser preservados como vieram do INMET.
+
+A camada silver fica em `data/silver/` e contem dados padronizados, selecionados para Pernambuco ou buffer, com metadados estruturados, timestamp local/UTC, variaveis principais e flags de qualidade.
+
+A camada gold fica em `data/gold/` e contem dados agregados e prontos para consumo analitico ou Machine Learning, incluindo a base diaria, resumos anuais/historicos e a versao normalizada do dataset estação-dia.
 
 ## Decisoes De Tratamento
 
@@ -130,4 +152,3 @@ A conversao UTC para horario local usa offset fixo de -3 horas. Essa escolha e s
 ## Proximos Passos
 
 Para analise espacial, use `stations_selected.csv` e os resumos anuais/historicos como entrada para interpolacao por IDW, krigagem ou modelos espaciais. Para Machine Learning, comece por `ml_dataset_station_day.csv`, avalie taxas de ausencia, crie particoes temporais por ano e considere adicionar covariaveis externas como altitude refinada, distancia do litoral, cobertura do solo e reanalises climaticas.
-

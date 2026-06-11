@@ -12,6 +12,8 @@ RAW_DIR = DATA_DIR / "raw"
 EXTRACTED_DIR = DATA_DIR / "extracted"
 INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"
+SILVER_DIR = DATA_DIR / "silver"
+GOLD_DIR = DATA_DIR / "gold"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 INMET_HISTORICAL_URL = "https://portal.inmet.gov.br/dadoshistoricos"
@@ -52,6 +54,8 @@ class PipelineConfig:
     extracted_dir: Path = EXTRACTED_DIR
     interim_dir: Path = INTERIM_DIR
     processed_dir: Path = PROCESSED_DIR
+    silver_dir: Path = SILVER_DIR
+    gold_dir: Path = GOLD_DIR
     reports_dir: Path = REPORTS_DIR
 
     @property
@@ -62,6 +66,5 @@ class PipelineConfig:
 def ensure_directories() -> None:
     """Create the project data/report directories if they do not exist."""
 
-    for path in [RAW_DIR, EXTRACTED_DIR, INTERIM_DIR, PROCESSED_DIR, REPORTS_DIR]:
+    for path in [RAW_DIR, EXTRACTED_DIR, INTERIM_DIR, PROCESSED_DIR, SILVER_DIR, GOLD_DIR, REPORTS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
-
