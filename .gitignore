@@ -6,6 +6,10 @@ __pycache__/
 venv/
 .env
 .matplotlib-cache/
+.ipynb_checkpoints/
+mlruns/
+
+dev-docs/
 
 data/raw/*.zip
 data/raw/*.csv
