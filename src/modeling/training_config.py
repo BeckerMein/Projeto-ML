@@ -12,13 +12,19 @@ ENERGY_CONFIG = {
     "WIND_SHEAR_EXPONENT_ALPHA": 0.20,
 }
 
-# Padrao: 4 workers paralelos com ate 2 threads numericas cada.
-# Isso mira uma carga de treino de 4 nucleos / 8 threads.
-CPU_WORKERS = 4
+# Padrao: 8 workers paralelos com ate 2 threads numericas cada.
+# Isso mira uma carga de treino de 8 nucleos / 16 threads.
+CPU_WORKERS = 8
 BLAS_THREADS = 2
 
 TEST_YEAR_FRACTION = 0.20
 MLFLOW_EXPERIMENT_NAME = "gold_energy_potential"
+
+USE_HISTORICAL_FEATURES = True
+HISTORY_MIN_OBSERVATIONS_DAY = 3
+HISTORY_MIN_OBSERVATIONS_MONTH = 3
+PRODUCTION_REFIT_WITH_FULL_GOLD = True
+BASELINE_MODEL_NAME = "baseline_climatology"
 
 # Entradas opcionais de inferencia futura. Mantenha None ate executar essa celula.
 FUTURE_STATION_CODE = None

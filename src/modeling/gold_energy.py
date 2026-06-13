@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from itertools import product
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import make_scorer, mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import (
+    make_scorer,
+    mean_absolute_error,
+    mean_squared_error,
+    median_absolute_error,
+    r2_score,
+)
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.neural_network import MLPRegressor
 from sklearn.pipeline import Pipeline
@@ -72,6 +80,53 @@ REQUIRED_ENERGY_CONFIG = [
     "WIND_HUB_HEIGHT_M",
     "WIND_SHEAR_EXPONENT_ALPHA",
 ]
+
+
+def _resolve_path_from_env(project_root: Path, env_name: str, default: Path) -> Path:
+    """Resolve caminho absoluto a partir de uma variavel de ambiente opcional."""
+
+    raw_value = os.environ.get(env_name)
+    path = Path(raw_value) if raw_value else default
+    if not path.is_absolute():
+        path = project_root / path
+    return path.resolve()
+
+
+def resolve_model_artifacts_dir(project_root: Path = PROJECT_ROOT) -> Path:
+    """Resolve o diretorio da execucao atual para artefatos de modelagem."""
+
+    artifacts_dir = _resolve_path_from_env(
+        project_root,
+        "MODEL_ARTIFACTS_DIR",
+        project_root / "artifacts" / "modeling" / "manual",
+    )
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    return artifacts_dir
+
+
+def configure_mlflow_tracking(project_root: Path, experiment_name: str) -> Path:
+    """Configura MLflow para salvar banco e artefatos na pasta de artefatos da execucao."""
+
+    artifacts_dir = resolve_model_artifacts_dir(project_root)
+    mlruns_dir = _resolve_path_from_env(project_root, "MLFLOW_ARTIFACT_ROOT_DIR", artifacts_dir / "mlruns")
+    mlruns_dir.mkdir(parents=True, exist_ok=True)
+
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if not tracking_uri:
+        tracking_db = artifacts_dir / "mlflow.db"
+        tracking_uri = "sqlite:///" + tracking_db.resolve().as_posix()
+
+    artifact_root = os.environ.get("MLFLOW_ARTIFACT_ROOT")
+    if not artifact_root:
+        artifact_root = mlruns_dir.as_uri()
+
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient()
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        client.create_experiment(experiment_name, artifact_location=artifact_root)
+    mlflow.set_experiment(experiment_name)
+    return artifacts_dir
 
 
 def load_gold_daily(project_root: Path = PROJECT_ROOT) -> pd.DataFrame:
@@ -293,17 +348,42 @@ def evaluate_predictions(y_true: pd.DataFrame, y_pred: np.ndarray) -> tuple[pd.D
     for index, target in enumerate(TARGET_COLUMNS):
         observed = y_true[target].to_numpy(dtype=float)
         predicted = np.asarray(y_pred, dtype=float)[:, index]
+        errors = predicted - observed
         mae = float(mean_absolute_error(observed, predicted))
         rmse = float(np.sqrt(mean_squared_error(observed, predicted)))
+        medae = float(median_absolute_error(observed, predicted))
+        bias = float(np.mean(errors))
+        denominator = np.abs(observed) + np.abs(predicted)
+        smape_values = np.divide(
+            2.0 * np.abs(errors),
+            denominator,
+            out=np.zeros_like(errors, dtype=float),
+            where=denominator != 0,
+        )
+        smape = float(np.mean(smape_values) * 100.0)
         r2 = float(r2_score(observed, predicted))
         scale = float(np.nanmax(observed) - np.nanmin(observed))
         nrmse = rmse / scale if math.isfinite(scale) and scale else np.nan
-        rows.append({"target": target, "mae": mae, "rmse": rmse, "nrmse": nrmse, "r2": r2})
+        rows.append(
+            {
+                "target": target,
+                "mae": mae,
+                "rmse": rmse,
+                "nrmse": nrmse,
+                "r2": r2,
+                "bias": bias,
+                "medae": medae,
+                "smape": smape,
+            }
+        )
         metric_prefix = target.replace("_generation_kwh_day", "")
         metrics[f"{metric_prefix}_mae"] = mae
         metrics[f"{metric_prefix}_rmse"] = rmse
         metrics[f"{metric_prefix}_nrmse"] = float(nrmse) if math.isfinite(nrmse) else np.nan
         metrics[f"{metric_prefix}_r2"] = r2
+        metrics[f"{metric_prefix}_bias"] = bias
+        metrics[f"{metric_prefix}_medae"] = medae
+        metrics[f"{metric_prefix}_smape"] = smape
     metrics["balanced_nrmse"] = float(np.nanmean([row["nrmse"] for row in rows]))
     return pd.DataFrame(rows), metrics
 
@@ -317,32 +397,42 @@ def make_one_hot_encoder() -> OneHotEncoder:
         return OneHotEncoder(handle_unknown="ignore", sparse=False)
 
 
-def build_model_pipeline(estimator: Any, scale_numeric: bool) -> Pipeline:
+def build_model_pipeline(
+    estimator: Any,
+    scale_numeric: bool,
+    feature_columns: list[str] | None = None,
+) -> Pipeline:
     """Monta o pipeline de preprocessamento + estimador usado pelos dois notebooks."""
 
+    feature_columns = list(feature_columns or FEATURE_COLUMNS)
+    assert_no_forbidden_features(feature_columns)
+    categorical_features = [column for column in CATEGORICAL_FEATURES if column in feature_columns]
+    numeric_features = [column for column in feature_columns if column not in categorical_features]
     numeric_transformer: str | StandardScaler = StandardScaler() if scale_numeric else "passthrough"
+    transformers = []
+    if categorical_features:
+        transformers.append(("station_code", make_one_hot_encoder(), categorical_features))
+    if numeric_features:
+        transformers.append(("numeric", numeric_transformer, numeric_features))
     preprocessor = ColumnTransformer(
-        transformers=[
-            ("station_code", make_one_hot_encoder(), CATEGORICAL_FEATURES),
-            ("numeric", numeric_transformer, NUMERIC_FEATURES),
-        ],
+        transformers=transformers,
         remainder="drop",
     )
     return Pipeline([("preprocess", preprocessor), ("model", estimator)])
 
 
-def random_forest_base_pipeline(random_state: int) -> Pipeline:
+def random_forest_base_pipeline(random_state: int, feature_columns: list[str] | None = None) -> Pipeline:
     """Pipeline Random Forest configurado para busca paralela sem paralelismo aninhado."""
 
     estimator = RandomForestRegressor(random_state=random_state, n_jobs=1)
-    return build_model_pipeline(estimator, scale_numeric=False)
+    return build_model_pipeline(estimator, scale_numeric=False, feature_columns=feature_columns)
 
 
-def mlp_base_estimator(random_state: int) -> TransformedTargetRegressor:
+def mlp_base_estimator(random_state: int, feature_columns: list[str] | None = None) -> TransformedTargetRegressor:
     """Pipeline MLP com variaveis numericas escaladas e alvos multi-saida escalados."""
 
     estimator = MLPRegressor(random_state=random_state, max_iter=1000)
-    pipeline = build_model_pipeline(estimator, scale_numeric=True)
+    pipeline = build_model_pipeline(estimator, scale_numeric=True, feature_columns=feature_columns)
     return TransformedTargetRegressor(regressor=pipeline, transformer=StandardScaler())
 
 
@@ -561,11 +651,17 @@ def make_future_feature_frame(table: pd.DataFrame, future_date: str | pd.Timesta
     return stations
 
 
-def predict_future_ranking(model: Any, table: pd.DataFrame, future_date: str | pd.Timestamp) -> pd.DataFrame:
+def predict_future_ranking(
+    model: Any,
+    table: pd.DataFrame,
+    future_date: str | pd.Timestamp,
+    feature_columns: list[str] | None = None,
+) -> pd.DataFrame:
     """Prediz potencial solar, eolico e hibrido para todas as estacoes conhecidas em uma data futura."""
 
+    feature_columns = list(feature_columns or FEATURE_COLUMNS)
     future = make_future_feature_frame(table, future_date)
-    predictions = np.asarray(model.predict(future[FEATURE_COLUMNS]), dtype=float)
+    predictions = np.asarray(model.predict(future[feature_columns]), dtype=float)
     result = future[[column for column in ["station_code", "station_name", "city", "state", "latitude", "longitude", "altitude", "date"] if column in future.columns]].copy()
     result["solar_generation_kwh_day_pred"] = predictions[:, 0]
     result["wind_generation_kwh_day_pred"] = predictions[:, 1]
@@ -580,11 +676,12 @@ def predict_future_for_station(
     table: pd.DataFrame,
     station_code: str,
     future_date: str | pd.Timestamp,
+    feature_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Prediz uma estacao e retorna o ranking completo da mesma data como contexto."""
 
     station_code = str(station_code)
-    ranking = predict_future_ranking(model, table, future_date)
+    ranking = predict_future_ranking(model, table, future_date, feature_columns=feature_columns)
     station_result = ranking[ranking["station_code"].astype(str) == station_code].copy()
     if station_result.empty:
         known = ", ".join(ranking["station_code"].astype(str).head(10).tolist())

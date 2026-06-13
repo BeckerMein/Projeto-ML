@@ -8,6 +8,8 @@ venv/
 .matplotlib-cache/
 .ipynb_checkpoints/
 mlruns/
+runs/
+artifacts/
 
 dev-docs/
 
