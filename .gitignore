@@ -8,8 +8,23 @@ venv/
 .matplotlib-cache/
 .ipynb_checkpoints/
 mlruns/
-runs/
-artifacts/
+runs/*
+!runs/20260613-134558/
+runs/20260613-134558/*
+!runs/20260613-134558/notebooks/
+runs/20260613-134558/notebooks/*
+!runs/20260613-134558/notebooks/*.executed.ipynb
+artifacts/*
+!artifacts/modeling/
+artifacts/modeling/*
+!artifacts/modeling/20260613-134558/
+artifacts/modeling/20260613-134558/*
+!artifacts/modeling/20260613-134558/mlflow.db
+!artifacts/modeling/20260613-134558/evaluation/
+!artifacts/modeling/20260613-134558/evaluation/**
+!artifacts/modeling/20260613-134558/mlruns/
+!artifacts/modeling/20260613-134558/mlruns/**
+notebooks/modelos/mlflow.db
 
 dev-docs/
 

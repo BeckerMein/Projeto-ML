@@ -3,6 +3,7 @@ param(
     [switch]$SkipBaseline,
     [switch]$SkipRandomForest,
     [switch]$SkipMlp,
+    [switch]$SkipComparison,
     [switch]$ShutdownOnSuccess,
     [int]$ShutdownDelaySeconds = 300
 )
@@ -38,7 +39,7 @@ $PythonExe = $PythonResolved.Path
 
 $GoldDaily = Join-Path $ProjectRoot "data\gold\inmet_pe_daily.csv"
 if (-not (Test-Path -LiteralPath $GoldDaily)) {
-    throw "Tabela gold nao encontrada em '$GoldDaily'. Gere a camada gold antes do treino."
+    throw "Dados tratados nao encontrados em '$GoldDaily'. Gere os dados tratados antes do treino."
 }
 
 Write-Host "Validando nbconvert..." -ForegroundColor Cyan
@@ -122,8 +123,15 @@ if (-not $SkipMlp) {
         -LogName "02_mlp.log"
 }
 
+if (-not $SkipComparison) {
+    Invoke-NotebookTraining `
+        -NotebookPath "notebooks\modelos\03_comparacao_modelos.ipynb" `
+        -OutputName "03_comparacao_modelos.executed.ipynb" `
+        -LogName "03_comparacao_modelos.log"
+}
+
 Write-Host ""
-Write-Host "Treinamentos finalizados com sucesso." -ForegroundColor Green
+Write-Host "Pipeline de modelagem finalizado com sucesso." -ForegroundColor Green
 Write-Host "Notebooks executados: $NotebookRunDir" -ForegroundColor Green
 Write-Host "Artefatos da execucao: $ArtifactsDir" -ForegroundColor Green
 

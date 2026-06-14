@@ -1,1 +1,1 @@
-"""Utilitarios para modelagem de potencial energetico na camada gold."""
+"""Utilitarios para modelagem de potencial energetico com os dados tratados."""

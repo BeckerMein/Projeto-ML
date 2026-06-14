@@ -1,4 +1,4 @@
-"""Configuracao compartilhada dos notebooks de energia da camada gold."""
+"""Configuracao compartilhada dos notebooks de energia com dados tratados."""
 
 # Dados medios de estruturas ja existentes em Pernambuco.
 ENERGY_CONFIG = {

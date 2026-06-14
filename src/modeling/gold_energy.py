@@ -1,11 +1,10 @@
-"""Funcoes auxiliares para modelar potencial solar e eolico usando apenas tabelas gold."""
+"""Funcoes auxiliares para modelar potencial solar e eolico usando dados tratados."""
 
 from __future__ import annotations
 
 import json
 import math
 import os
-from itertools import product
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -31,7 +30,18 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from src.config import PROJECT_ROOT
 
 GOLD_DAILY_FILENAME = "inmet_pe_daily.csv"
-TARGET_COLUMNS = ["solar_generation_kwh_day", "wind_generation_kwh_day"]
+TARGET_COLUMNS = ["solar_daily_kwh_m2_day", "wind_daily_mean_ms"]
+ENERGY_OUTPUT_COLUMNS = ["solar_generation_kwh_day", "wind_generation_kwh_day"]
+HYBRID_ENERGY_OUTPUT_COLUMN = "hybrid_generation_kwh_day"
+ENERGY_RESULT_COLUMNS = ENERGY_OUTPUT_COLUMNS + [HYBRID_ENERGY_OUTPUT_COLUMN]
+WIND_HUB_HEIGHT_COLUMN = "wind_daily_mean_hub_height_ms"
+METRIC_PREFIXES = {
+    "solar_daily_kwh_m2_day": "solar_irradiation",
+    "wind_daily_mean_ms": "wind_speed",
+    "solar_generation_kwh_day": "solar_generation",
+    "wind_generation_kwh_day": "wind_generation",
+    "hybrid_generation_kwh_day": "hybrid_generation",
+}
 FEATURE_COLUMNS = [
     "station_code",
     "latitude",
@@ -47,7 +57,7 @@ FEATURE_COLUMNS = [
 CATEGORICAL_FEATURES = ["station_code"]
 NUMERIC_FEATURES = [column for column in FEATURE_COLUMNS if column not in CATEGORICAL_FEATURES]
 METADATA_COLUMNS = ["station_code", "station_name", "city", "state", "latitude", "longitude", "altitude", "date", "year"]
-DERIVED_AUDIT_COLUMNS = ["wind_daily_mean_hub_height_ms"]
+DERIVED_AUDIT_COLUMNS = [WIND_HUB_HEIGHT_COLUMN] + ENERGY_RESULT_COLUMNS
 FORBIDDEN_FEATURE_COLUMNS = {
     "solar_daily_kwh_m2_day",
     "solar_daily_kj_m2",
@@ -57,7 +67,8 @@ FORBIDDEN_FEATURE_COLUMNS = {
     "valid_hours_solar",
     "missing_rate_wind",
     "missing_rate_solar",
-    "wind_daily_mean_hub_height_ms",
+    WIND_HUB_HEIGHT_COLUMN,
+    *ENERGY_RESULT_COLUMNS,
 }
 REQUIRED_DAILY_COLUMNS = {
     "station_code",
@@ -130,19 +141,19 @@ def configure_mlflow_tracking(project_root: Path, experiment_name: str) -> Path:
 
 
 def load_gold_daily(project_root: Path = PROJECT_ROOT) -> pd.DataFrame:
-    """Carrega a tabela gold diaria e falha claramente se ela nao existir."""
+    """Carrega o arquivo diario de dados tratados e falha claramente se ele nao existir."""
 
     gold_path = project_root / "data" / "gold" / GOLD_DAILY_FILENAME
     if not gold_path.exists():
         raise FileNotFoundError(
-            f"Tabela gold nao encontrada: {gold_path}. "
-            "Gere a camada gold antes de treinar os modelos."
+            f"Dados tratados nao encontrados: {gold_path}. "
+            "Gere os dados tratados antes de treinar os modelos."
         )
 
     df = pd.read_csv(gold_path)
     missing = sorted(REQUIRED_DAILY_COLUMNS - set(df.columns))
     if missing:
-        raise ValueError(f"Tabela gold sem colunas obrigatorias para modelagem: {missing}")
+        raise ValueError(f"Dados tratados sem colunas obrigatorias para modelagem: {missing}")
     return df
 
 
@@ -175,12 +186,12 @@ def validate_energy_config(config: dict[str, Any]) -> dict[str, float]:
 
 
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Adiciona variaveis ciclicas de calendario derivadas da coluna de data da gold."""
+    """Adiciona variaveis ciclicas de calendario derivadas da data dos dados tratados."""
 
     result = df.copy()
     result["date"] = pd.to_datetime(result["date"], errors="coerce")
     if result["date"].isna().any():
-        raise ValueError("A coluna date da gold contem valores invalidos.")
+        raise ValueError("A coluna date dos dados tratados contem valores invalidos.")
     result["year"] = result["date"].dt.year
     result["month"] = result["date"].dt.month
     result["day_of_year"] = result["date"].dt.dayofyear
@@ -191,44 +202,87 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def add_generation_targets(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
-    """Calcula alvos de geracao potencial a partir das variaveis meteorologicas da gold."""
+def metric_prefix_for_target(target: str) -> str:
+    """Retorna o prefixo compacto usado para registrar metricas no MLflow."""
+
+    return METRIC_PREFIXES.get(target, target.replace("_day", "").replace("_mean", "").replace("_daily", ""))
+
+
+def clip_physical_predictions(values: pd.DataFrame | np.ndarray) -> pd.DataFrame:
+    """Converte predicoes fisicas para DataFrame e remove valores negativos impossiveis."""
+
+    frame = pd.DataFrame(values, columns=TARGET_COLUMNS) if not isinstance(values, pd.DataFrame) else values.copy()
+    missing = sorted(set(TARGET_COLUMNS) - set(frame.columns))
+    if missing:
+        raise ValueError(f"Predicoes fisicas sem colunas obrigatorias: {missing}")
+    for column in TARGET_COLUMNS:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").clip(lower=0.0)
+    return frame[TARGET_COLUMNS]
+
+
+def calculate_energy_outputs_from_physical(
+    physical_values: pd.DataFrame | np.ndarray,
+    config: dict[str, Any],
+    *,
+    include_hub_height: bool = False,
+) -> pd.DataFrame:
+    """Calcula geracao em kWh a partir de irradiacao solar e vento previstos ou observados."""
 
     constants = validate_energy_config(config)
-    result = df.copy()
-    result["solar_daily_kwh_m2_day"] = pd.to_numeric(result["solar_daily_kwh_m2_day"], errors="coerce")
-    result["wind_daily_mean_ms"] = pd.to_numeric(result["wind_daily_mean_ms"], errors="coerce")
+    physical = clip_physical_predictions(physical_values)
 
-    if (result["solar_daily_kwh_m2_day"].dropna() < 0).any():
-        raise ValueError("A gold contem irradiacao solar diaria negativa.")
-    if (result["wind_daily_mean_ms"].dropna() < 0).any():
-        raise ValueError("A gold contem velocidade media de vento negativa.")
-
-    result["solar_generation_kwh_day"] = (
-        result["solar_daily_kwh_m2_day"]
-        * constants["SOLAR_PANEL_AREA_M2"]
-        * constants["SOLAR_PANEL_EFFICIENCY"]
-    )
     wind_height_factor = (
         constants["WIND_HUB_HEIGHT_M"] / constants["WIND_REFERENCE_HEIGHT_M"]
     ) ** constants["WIND_SHEAR_EXPONENT_ALPHA"]
-    result["wind_daily_mean_hub_height_ms"] = result["wind_daily_mean_ms"] * wind_height_factor
+    hub_height_wind = physical["wind_daily_mean_ms"] * wind_height_factor
+
+    result = pd.DataFrame(index=physical.index)
+    if include_hub_height:
+        result[WIND_HUB_HEIGHT_COLUMN] = hub_height_wind
+    result["solar_generation_kwh_day"] = (
+        physical["solar_daily_kwh_m2_day"]
+        * constants["SOLAR_PANEL_AREA_M2"]
+        * constants["SOLAR_PANEL_EFFICIENCY"]
+    )
     result["wind_generation_kwh_day"] = (
         0.5
         * constants["AIR_DENSITY_KG_M3"]
         * constants["WIND_ROTOR_AREA_M2"]
         * constants["WIND_TURBINE_EFFICIENCY"]
-        * result["wind_daily_mean_hub_height_ms"].pow(3)
+        * hub_height_wind.pow(3)
         * 24.0
         / 1000.0
     )
+    result[HYBRID_ENERGY_OUTPUT_COLUMN] = result[ENERGY_OUTPUT_COLUMNS].sum(axis=1)
+    return result
+
+
+def add_physical_targets_and_energy_outputs(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
+    """Prepara alvos fisicos dos dados tratados e calcula saidas energeticas derivadas."""
+
+    result = df.copy()
+    result["solar_daily_kwh_m2_day"] = pd.to_numeric(result["solar_daily_kwh_m2_day"], errors="coerce")
+    result["wind_daily_mean_ms"] = pd.to_numeric(result["wind_daily_mean_ms"], errors="coerce")
+
+    if (result["solar_daily_kwh_m2_day"].dropna() < 0).any():
+        raise ValueError("Os dados tratados contem irradiacao solar diaria negativa.")
+    if (result["wind_daily_mean_ms"].dropna() < 0).any():
+        raise ValueError("Os dados tratados contem velocidade media de vento negativa.")
+
+    energy_outputs = calculate_energy_outputs_from_physical(
+        result[TARGET_COLUMNS],
+        config,
+        include_hub_height=True,
+    )
+    for column in energy_outputs.columns:
+        result[column] = energy_outputs[column].to_numpy()
     return result
 
 
 def prepare_energy_modeling_table(df: pd.DataFrame, energy_config: dict[str, Any]) -> pd.DataFrame:
-    """Cria uma tabela estacao-dia de modelagem com variaveis permitidas e alvos."""
+    """Cria uma tabela estacao-dia de modelagem com features permitidas e alvos fisicos."""
 
-    table = add_generation_targets(add_calendar_features(df), energy_config)
+    table = add_physical_targets_and_energy_outputs(add_calendar_features(df), energy_config)
     for column in FEATURE_COLUMNS + TARGET_COLUMNS:
         if column != "station_code":
             table[column] = pd.to_numeric(table[column], errors="coerce")
@@ -272,7 +326,7 @@ def temporal_train_test_split(
 
     years = sorted(metadata["year"].dropna().astype(int).unique().tolist())
     if len(years) < 3:
-        raise ValueError("Sao necessarios pelo menos 3 anos na gold para treino, validacao temporal e teste.")
+        raise ValueError("Sao necessarios pelo menos 3 anos nos dados tratados para treino, validacao temporal e teste.")
     test_count = max(1, math.ceil(len(years) * test_year_fraction))
     test_years = years[-test_count:]
     train_years = years[:-test_count]
@@ -340,14 +394,20 @@ def balanced_negative_nrmse(y_true: Any, y_pred: Any) -> float:
 BALANCED_NRMSE_SCORER = make_scorer(balanced_negative_nrmse, greater_is_better=True)
 
 
-def evaluate_predictions(y_true: pd.DataFrame, y_pred: np.ndarray) -> tuple[pd.DataFrame, dict[str, float]]:
-    """Calcula metricas por alvo no conjunto de teste temporal separado."""
+def evaluate_predictions(
+    y_true: pd.DataFrame,
+    y_pred: pd.DataFrame | np.ndarray,
+    target_columns: list[str] | None = None,
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Calcula metricas por alvo para previsoes fisicas ou saidas energeticas calculadas."""
 
+    target_columns = list(target_columns or TARGET_COLUMNS)
+    predictions = pd.DataFrame(y_pred, columns=target_columns) if not isinstance(y_pred, pd.DataFrame) else y_pred
     rows = []
     metrics: dict[str, float] = {}
-    for index, target in enumerate(TARGET_COLUMNS):
+    for index, target in enumerate(target_columns):
         observed = y_true[target].to_numpy(dtype=float)
-        predicted = np.asarray(y_pred, dtype=float)[:, index]
+        predicted = predictions[target].to_numpy(dtype=float) if target in predictions.columns else np.asarray(y_pred, dtype=float)[:, index]
         errors = predicted - observed
         mae = float(mean_absolute_error(observed, predicted))
         rmse = float(np.sqrt(mean_squared_error(observed, predicted)))
@@ -376,7 +436,7 @@ def evaluate_predictions(y_true: pd.DataFrame, y_pred: np.ndarray) -> tuple[pd.D
                 "smape": smape,
             }
         )
-        metric_prefix = target.replace("_generation_kwh_day", "")
+        metric_prefix = metric_prefix_for_target(target)
         metrics[f"{metric_prefix}_mae"] = mae
         metrics[f"{metric_prefix}_rmse"] = rmse
         metrics[f"{metric_prefix}_nrmse"] = float(nrmse) if math.isfinite(nrmse) else np.nan
@@ -386,6 +446,53 @@ def evaluate_predictions(y_true: pd.DataFrame, y_pred: np.ndarray) -> tuple[pd.D
         metrics[f"{metric_prefix}_smape"] = smape
     metrics["balanced_nrmse"] = float(np.nanmean([row["nrmse"] for row in rows]))
     return pd.DataFrame(rows), metrics
+
+
+def build_prediction_results_table(
+    metadata: pd.DataFrame,
+    y_true: pd.DataFrame,
+    physical_predictions: pd.DataFrame | np.ndarray,
+    energy_config: dict[str, Any],
+    *,
+    baseline_predictions: pd.DataFrame | np.ndarray | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+    """Monta tabela com valores fisicos previstos e geracao calculada em kWh."""
+
+    true_physical = y_true[TARGET_COLUMNS].reset_index(drop=True).copy()
+    pred_physical = clip_physical_predictions(physical_predictions).reset_index(drop=True)
+    actual_energy = calculate_energy_outputs_from_physical(
+        true_physical,
+        energy_config,
+        include_hub_height=True,
+    ).reset_index(drop=True)
+    pred_energy = calculate_energy_outputs_from_physical(
+        pred_physical,
+        energy_config,
+        include_hub_height=True,
+    ).reset_index(drop=True)
+    baseline_energy = None
+
+    result = metadata.reset_index(drop=True).copy()
+    for column in TARGET_COLUMNS:
+        result[f"{column}_actual"] = true_physical[column]
+        result[f"{column}_pred"] = pred_physical[column]
+    for column in actual_energy.columns:
+        result[f"{column}_actual"] = actual_energy[column]
+        result[f"{column}_pred"] = pred_energy[column]
+
+    if baseline_predictions is not None:
+        baseline_physical = clip_physical_predictions(baseline_predictions).reset_index(drop=True)
+        baseline_energy = calculate_energy_outputs_from_physical(
+            baseline_physical,
+            energy_config,
+            include_hub_height=True,
+        ).reset_index(drop=True)
+        for column in TARGET_COLUMNS:
+            result[f"{column}_baseline"] = baseline_physical[column]
+        for column in baseline_energy.columns:
+            result[f"{column}_baseline"] = baseline_energy[column]
+
+    return result, actual_energy, pred_energy, baseline_energy
 
 
 def make_one_hot_encoder() -> OneHotEncoder:
@@ -651,57 +758,8 @@ def make_future_feature_frame(table: pd.DataFrame, future_date: str | pd.Timesta
     return stations
 
 
-def predict_future_ranking(
-    model: Any,
-    table: pd.DataFrame,
-    future_date: str | pd.Timestamp,
-    feature_columns: list[str] | None = None,
-) -> pd.DataFrame:
-    """Prediz potencial solar, eolico e hibrido para todas as estacoes conhecidas em uma data futura."""
-
-    feature_columns = list(feature_columns or FEATURE_COLUMNS)
-    future = make_future_feature_frame(table, future_date)
-    predictions = np.asarray(model.predict(future[feature_columns]), dtype=float)
-    result = future[[column for column in ["station_code", "station_name", "city", "state", "latitude", "longitude", "altitude", "date"] if column in future.columns]].copy()
-    result["solar_generation_kwh_day_pred"] = predictions[:, 0]
-    result["wind_generation_kwh_day_pred"] = predictions[:, 1]
-    result["hybrid_generation_kwh_day_pred"] = (
-        result["solar_generation_kwh_day_pred"] + result["wind_generation_kwh_day_pred"]
-    )
-    return result.sort_values("hybrid_generation_kwh_day_pred", ascending=False).reset_index(drop=True)
-
-
-def predict_future_for_station(
-    model: Any,
-    table: pd.DataFrame,
-    station_code: str,
-    future_date: str | pd.Timestamp,
-    feature_columns: list[str] | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Prediz uma estacao e retorna o ranking completo da mesma data como contexto."""
-
-    station_code = str(station_code)
-    ranking = predict_future_ranking(model, table, future_date, feature_columns=feature_columns)
-    station_result = ranking[ranking["station_code"].astype(str) == station_code].copy()
-    if station_result.empty:
-        known = ", ".join(ranking["station_code"].astype(str).head(10).tolist())
-        raise ValueError(f"station_code nao encontrado na gold: {station_code}. Exemplos conhecidos: {known}")
-    station_result.insert(0, "ranking_position", station_result.index + 1)
-    return station_result.reset_index(drop=True), ranking
-
-
 def describe_search_space(param_space: dict[str, list[Any]]) -> str:
     """Serializa um resumo compacto do espaco de busca."""
 
     summary = {key: len(values) for key, values in param_space.items()}
     return json.dumps(summary, ensure_ascii=True, sort_keys=True)
-
-
-def cartesian_preview(param_grid: dict[str, list[Any]], limit: int = 5) -> list[dict[str, Any]]:
-    """Gera uma pequena previa das combinacoes do grid para exibicao no notebook."""
-
-    keys = list(param_grid)
-    rows = []
-    for values in list(product(*(param_grid[key] for key in keys)))[:limit]:
-        rows.append(dict(zip(keys, values)))
-    return rows

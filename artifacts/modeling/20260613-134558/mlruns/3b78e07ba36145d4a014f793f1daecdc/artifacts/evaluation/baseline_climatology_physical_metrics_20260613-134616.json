@@ -1,0 +1,17 @@
+{
+  "solar_irradiation_mae":1.3406081197,
+  "solar_irradiation_rmse":1.6966875537,
+  "solar_irradiation_nrmse":0.1647616056,
+  "solar_irradiation_r2":-0.1138850269,
+  "solar_irradiation_bias":0.1505237455,
+  "solar_irradiation_medae":1.127884838,
+  "solar_irradiation_smape":27.1823026514,
+  "wind_speed_mae":0.8733046417,
+  "wind_speed_rmse":1.1741113295,
+  "wind_speed_nrmse":0.1764107173,
+  "wind_speed_r2":-0.2347715799,
+  "wind_speed_bias":0.4113900123,
+  "wind_speed_medae":0.6503883987,
+  "wind_speed_smape":38.1799380165,
+  "balanced_nrmse":0.1705861614
+}

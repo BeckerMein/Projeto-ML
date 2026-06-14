@@ -1,0 +1,29 @@
+{
+  "model__n_estimators": [
+    300,
+    500
+  ],
+  "model__max_depth": [
+    8,
+    12,
+    18
+  ],
+  "model__min_samples_split": [
+    5,
+    10
+  ],
+  "model__min_samples_leaf": [
+    4,
+    8
+  ],
+  "model__max_features": [
+    "sqrt",
+    0.5
+  ],
+  "model__bootstrap": [
+    true
+  ],
+  "model__criterion": [
+    "squared_error"
+  ]
+}

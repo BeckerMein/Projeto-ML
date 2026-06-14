@@ -1,0 +1,15 @@
+{
+  "regressor__model__validation_fraction": 0.15,
+  "regressor__model__n_iter_no_change": 40,
+  "regressor__model__max_iter": 1000,
+  "regressor__model__learning_rate_init": 0.000789753201772446,
+  "regressor__model__learning_rate": "adaptive",
+  "regressor__model__hidden_layer_sizes": [
+    512,
+    256
+  ],
+  "regressor__model__early_stopping": true,
+  "regressor__model__batch_size": 64,
+  "regressor__model__alpha": 0.0009712740198471167,
+  "regressor__model__activation": "tanh"
+}

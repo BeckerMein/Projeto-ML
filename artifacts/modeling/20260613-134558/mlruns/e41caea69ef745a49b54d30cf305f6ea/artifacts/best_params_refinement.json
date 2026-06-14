@@ -1,0 +1,9 @@
+{
+  "model__bootstrap": true,
+  "model__criterion": "squared_error",
+  "model__max_depth": 12,
+  "model__max_features": "sqrt",
+  "model__min_samples_leaf": 8,
+  "model__min_samples_split": 5,
+  "model__n_estimators": 300
+}

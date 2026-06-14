@@ -1,0 +1,29 @@
+{
+  "artifacts_dir": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558",
+  "created_at": "20260613-225040",
+  "models": [
+    "baseline",
+    "random_forest",
+    "mlp"
+  ],
+  "row_count_wide": 6278,
+  "row_count_long": 18834,
+  "value_columns": [
+    "solar_daily_kwh_m2_day",
+    "wind_daily_mean_ms",
+    "wind_daily_mean_hub_height_ms",
+    "solar_generation_kwh_day",
+    "wind_generation_kwh_day",
+    "hybrid_generation_kwh_day"
+  ],
+  "source_files": {
+    "baseline": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558\\evaluation\\baseline_climatology\\baseline_climatology_test_predictions_20260613-134616.csv",
+    "random_forest": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558\\evaluation\\random_forest\\random_forest_test_predictions_20260613-190557.csv",
+    "mlp": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558\\evaluation\\mlp\\mlp_test_predictions_20260613-214358.csv"
+  },
+  "outputs": {
+    "wide": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558\\evaluation\\model_comparison\\model_predictions_consolidated_wide_20260613-225040.csv",
+    "long": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558\\evaluation\\model_comparison\\model_predictions_consolidated_long_20260613-225040.csv",
+    "metrics": "C:\\Users\\Admin\\Desktop\\Projetos\\Projeto-ML\\artifacts\\modeling\\20260613-134558\\evaluation\\model_comparison\\model_comparison_metrics_20260613-225040.csv"
+  }
+}

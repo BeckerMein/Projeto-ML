@@ -149,6 +149,124 @@ Os dados do INMET podem ter falhas longas, mudancas de disponibilidade por estac
 
 A conversao UTC para horario local usa offset fixo de -3 horas. Essa escolha e simples e reproduzivel, mas nao representa horario de verao em periodos historicos.
 
-## Proximos Passos
+## Modelos De Machine Learning
 
-Para analise espacial, use `stations_selected.csv` e os resumos anuais/historicos como entrada para interpolacao por IDW, krigagem ou modelos espaciais. Para Machine Learning, comece por `ml_dataset_station_day.csv`, avalie taxas de ausencia, crie particoes temporais por ano e considere adicionar covariaveis externas como altitude refinada, distancia do litoral, cobertura do solo e reanalises climaticas.
+A etapa de modelagem usa apenas os dados tratados disponiveis em `data/gold/inmet_pe_daily.csv`. Os modelos nao preveem diretamente a geracao em kWh. Eles preveem as variaveis fisicas usadas no calculo energetico:
+
+```text
+solar_daily_kwh_m2_day
+wind_daily_mean_ms
+```
+
+Depois da predicao, a geracao solar, eolica e hibrida em kWh/dia e calculada de forma deterministica com as constantes configuradas em `src/modeling/training_config.py`.
+
+### Modelos Implementados
+
+Os notebooks ficam em `notebooks/modelos/`:
+
+```text
+00_baseline_climatologica.ipynb
+01_random_forest.ipynb
+02_mlp.ipynb
+03_comparacao_modelos.ipynb
+```
+
+`00_baseline_climatologica.ipynb`: cria uma baseline climatologica baseada em medias historicas por estacao, dia do ano e mes, com fallbacks globais.
+
+`01_random_forest.ipynb`: treina um `RandomForestRegressor` multi-saida com busca de hiperparametros por `RandomizedSearchCV` e refino por `GridSearchCV`.
+
+`02_mlp.ipynb`: treina uma `MLPRegressor` multi-saida com normalizacao de features e alvos, busca ampla e busca refinada de hiperparametros.
+
+`03_comparacao_modelos.ipynb`: consolida as predicoes da baseline, Random Forest e MLP em arquivos comparaveis por estacao e data.
+
+### Validacao E Metricas
+
+A validacao usa separacao temporal. Os anos mais recentes ficam como teste final, enquanto os anos anteriores sao usados para treino e validacao cruzada temporal expansiva.
+
+Essa estrategia foi escolhida porque os dados sao series temporais por estacao. Um particionamento aleatorio poderia misturar passado e futuro, criando vazamento temporal e uma avaliacao otimista. O holdout temporal avalia a capacidade do modelo de generalizar para anos futuros, que e o uso esperado da solucao.
+
+O Leave-One-Out nao foi aplicado porque nao e adequado para este contexto: alem do custo computacional alto para dezenas de milhares de linhas, ele quebraria a estrutura temporal do problema e nao representaria a previsao de anos futuros. Por isso, a validacao cruzada temporal expansiva e a alternativa metodologicamente mais coerente.
+
+As metricas registradas incluem:
+
+```text
+MAE
+RMSE
+NRMSE
+R2
+Bias medio
+MedAE
+sMAPE
+```
+
+As metricas sao calculadas em dois grupos:
+
+```text
+metricas fisicas: irradiacao solar e velocidade media do vento
+metricas energeticas: geracao solar, eolica e hibrida em kWh/dia
+```
+
+O criterio principal para escolher o melhor modelo e o menor `balanced_nrmse`, calculado como a media do NRMSE entre os alvos avaliados. Em caso de resultados proximos, sao observados RMSE, MAE, R2 e a simplicidade operacional do modelo. A baseline climatologica continua como referencia forte: se um modelo de ML nao superar a baseline de forma relevante, a baseline pode ser a alternativa mais adequada para producao inicial.
+
+### MLflow E Artefatos
+
+Os treinamentos registram parametros, metricas, artefatos e modelos no MLflow. Ao usar o runner, cada execucao cria uma pasta propria em:
+
+```text
+runs/<run_id>/
+artifacts/modeling/<run_id>/
+```
+
+Os principais resultados ficam em:
+
+```text
+artifacts/modeling/<run_id>/evaluation/
+artifacts/modeling/<run_id>/mlruns/
+artifacts/modeling/<run_id>/mlflow.db
+```
+
+O consolidado dos modelos e salvo em:
+
+```text
+artifacts/modeling/<run_id>/evaluation/model_comparison/
+```
+
+com os arquivos:
+
+```text
+model_predictions_consolidated_wide_*.csv
+model_predictions_consolidated_long_*.csv
+model_comparison_metrics_*.csv
+model_comparison_manifest_*.json
+```
+
+### Como Executar Os Modelos
+
+Antes de treinar, confirme os valores em `ENERGY_CONFIG`, dentro de `src/modeling/training_config.py`.
+
+Para executar o pipeline completo de modelagem:
+
+```powershell
+.\scripts\run_training_notebooks.ps1
+```
+
+Para executar e desligar a maquina ao finalizar com sucesso:
+
+```powershell
+.\scripts\run_training_notebooks.ps1 -ShutdownOnSuccess
+```
+
+Para pular alguma etapa:
+
+```powershell
+.\scripts\run_training_notebooks.ps1 -SkipBaseline
+.\scripts\run_training_notebooks.ps1 -SkipRandomForest
+.\scripts\run_training_notebooks.ps1 -SkipMlp
+.\scripts\run_training_notebooks.ps1 -SkipComparison
+```
+
+### Observacoes Dos Resultados
+
+Na execucao avaliada, a baseline foi mais forte para a previsao solar, enquanto o Random Forest teve melhor desempenho para vento e geracao hibrida. Isso e coerente com as features disponiveis: sem previsao meteorologica futura, a irradiacao solar diaria fica muito dependente do comportamento historico sazonal; ja o vento apresentou mais estrutura capturavel por localizacao, altitude, calendario e historico.
+
+Para a proxima etapa, a dashboard deve consumir os CSVs consolidados em `evaluation/model_comparison/` para exibir metricas, previsoes e comparacoes entre baseline, Random Forest e MLP.

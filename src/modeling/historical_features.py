@@ -1,4 +1,4 @@
-"""Baseline climatologica e features historicas derivadas apenas da camada gold."""
+"""Baseline climatologica e features historicas derivadas dos dados tratados."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 
 from src.modeling.gold_energy import (
-    FEATURE_COLUMNS,
     METADATA_COLUMNS,
     TARGET_COLUMNS,
     assert_no_forbidden_features,
+    metric_prefix_for_target,
 )
 
 HISTORICAL_LEVELS = ["station_doy", "station_month", "station", "global_doy", "global_month", "global"]
@@ -25,7 +25,7 @@ HISTORICAL_STATS = ["mean", "median", "std", "count"]
 def target_prefix(target: str) -> str:
     """Retorna o prefixo compacto usado nas colunas historicas."""
 
-    return target.replace("_generation_kwh_day", "")
+    return metric_prefix_for_target(target)
 
 
 def make_historical_feature_columns(target_columns: list[str] | None = None) -> list[str]:
@@ -312,7 +312,7 @@ def predict_climatology_baseline(
 
 
 class ClimatologyBaselineRegressor(BaseEstimator, RegressorMixin):
-    """Regressor deterministico baseado em medias historicas da camada gold."""
+    """Regressor deterministico baseado em medias historicas dos dados tratados."""
 
     def __init__(self, min_observations_day: int = 3, min_observations_month: int = 3):
         self.min_observations_day = min_observations_day
