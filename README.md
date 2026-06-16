@@ -22,14 +22,9 @@ Este repositório apresenta uma solução de Aprendizado de Máquina para estima
 
 O objetivo do projeto é apoiar a análise de potencial renovável em Pernambuco por meio de modelos supervisionados treinados sobre séries históricas meteorológicas. A unidade de observação adotada é `estação-dia`, preservando a dimensão temporal dos dados e permitindo avaliar a capacidade de generalização dos modelos para anos futuros.
 
-Na implementação atual, os modelos são treinados para estimar duas variáveis físicas agregadas em escala diária:
+A modelagem não prediz diretamente a geração energética final de uma instalação. Em vez disso, os modelos estimam a disponibilidade meteorológica diária associada aos componentes solar e eólico, usando atributos de localização, calendário e histórico das estações. No componente solar, a referência física da base é a irradiação diária por metro quadrado, calculada previamente no pipeline a partir da radiação horária do INMET; no componente eólico, a referência é a velocidade média diária do vento a 10 m.
 
-| Alvo | Interpretação |
-|---|---|
-| `solar_daily_kwh_m2_day` | Irradiação solar diária por metro quadrado, calculada a partir da radiação solar horária do INMET. |
-| `wind_daily_mean_ms` | Velocidade média diária do vento a 10 m. |
-
-O alvo solar não representa a geração final de um sistema fotovoltaico. Ele é obtido no pipeline de agregação a partir da soma diária de `solar_radiation_kj_m2` no período diurno e da conversão de kJ/m² para kWh/m². Após a previsão desses alvos físicos, a geração solar, eólica e híbrida em kWh/dia é calculada deterministicamente com constantes físicas definidas em `src/modeling/training_config.py`. Essa decisão metodológica separa o aprendizado estatístico das premissas de infraestrutura, como área de painéis, eficiência fotovoltaica, área do rotor, densidade do ar e altura de cubo.
+Somente após essa etapa a geração solar, eólica e híbrida em kWh/dia é calculada deterministicamente com constantes físicas definidas em `src/modeling/training_config.py`. Essa decisão metodológica separa o aprendizado estatístico das premissas de infraestrutura, como área de painéis, eficiência fotovoltaica, área do rotor, densidade do ar e altura de cubo.
 
 ## Conformidade Com A Especificação
 
