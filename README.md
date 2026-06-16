@@ -240,6 +240,33 @@ model_comparison_metrics_*.csv
 model_comparison_manifest_*.json
 ```
 
+Os CSVs consolidados de predicoes incluem valores reais, predicoes, erro, erro absoluto e NRMSE por modelo/alvo.
+
+### Demonstração Com Docker
+
+O projeto inclui uma configuração Docker para demonstrar a solução ja treinada, sem baixar dados, processar bases brutas ou executar notebooks de treinamento. A imagem inclui a execução oficial `20260613-134558`, com `mlflow.db`, `mlruns`, metricas, modelos e CSV consolidado.
+
+Para construir e subir a dashboard e o MLflow:
+
+```powershell
+docker compose up --build
+```
+
+Após a inicialização, acesse:
+
+```text
+Dashboard Streamlit: http://localhost:8501
+MLflow UI:           http://localhost:5000
+```
+
+A dashboard usa por padrão:
+
+```text
+artifacts/modeling/20260613-134558/evaluation/model_comparison/model_predictions_consolidated_wide_20260613-225146.csv
+```
+
+Para apontar a dashboard para outro CSV consolidado, defina a variável `PREDICTIONS_CSV` no serviço `dashboard` do `docker-compose.yml`.
+
 ### Como Executar Os Modelos
 
 Antes de treinar, confirme os valores em `ENERGY_CONFIG`, dentro de `src/modeling/training_config.py`.

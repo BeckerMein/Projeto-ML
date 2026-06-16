@@ -39,6 +39,15 @@ VALUE_COLUMNS = TARGET_COLUMNS + [WIND_HUB_HEIGHT_COLUMN] + ENERGY_RESULT_COLUMN
 PHYSICAL_COMPARISON_COLUMNS = TARGET_COLUMNS
 
 
+def _calculate_nrmse(consolidated: pd.DataFrame, column: str, model_name: str) -> float:
+    """Calcula NRMSE agregado para um par alvo/modelo no consolidado."""
+
+    y_true = consolidated[[f"{column}_actual"]].rename(columns={f"{column}_actual": column})
+    y_pred = consolidated[[f"{column}_{model_name}"]].rename(columns={f"{column}_{model_name}": column})
+    metrics, _ = evaluate_predictions(y_true, y_pred, target_columns=[column])
+    return float(metrics.loc[0, "nrmse"])
+
+
 def _resolve_path_from_env(project_root: Path, env_name: str) -> Path | None:
     raw_value = os.environ.get(env_name)
     if not raw_value:
@@ -177,6 +186,11 @@ def build_consolidated_predictions(tables: dict[str, pd.DataFrame]) -> pd.DataFr
             consolidated[f"{column}_abs_error_{model_name}"] = (
                 consolidated[f"{column}_error_{model_name}"].abs()
             )
+            consolidated[f"{column}_nrmse_{model_name}"] = _calculate_nrmse(
+                consolidated,
+                column,
+                model_name,
+            )
 
     ordered_columns = list(METADATA_COLUMNS)
     for column in VALUE_COLUMNS:
@@ -184,6 +198,7 @@ def build_consolidated_predictions(tables: dict[str, pd.DataFrame]) -> pd.DataFr
         ordered_columns.extend(f"{column}_{model_name}" for model_name in MODEL_ORDER)
         ordered_columns.extend(f"{column}_error_{model_name}" for model_name in MODEL_ORDER)
         ordered_columns.extend(f"{column}_abs_error_{model_name}" for model_name in MODEL_ORDER)
+        ordered_columns.extend(f"{column}_nrmse_{model_name}" for model_name in MODEL_ORDER)
 
     return consolidated[ordered_columns]
 
@@ -200,6 +215,7 @@ def build_long_predictions(consolidated: pd.DataFrame) -> pd.DataFrame:
             model_frame[f"{column}_pred"] = consolidated[f"{column}_{model_name}"]
             model_frame[f"{column}_error"] = consolidated[f"{column}_error_{model_name}"]
             model_frame[f"{column}_abs_error"] = consolidated[f"{column}_abs_error_{model_name}"]
+            model_frame[f"{column}_nrmse"] = consolidated[f"{column}_nrmse_{model_name}"]
         frames.append(model_frame)
     return pd.concat(frames, ignore_index=True)
 

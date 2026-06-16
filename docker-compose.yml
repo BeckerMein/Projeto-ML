@@ -1,0 +1,19 @@
+services:
+  dashboard:
+    build: .
+    image: projeto-ml-trained-demo:latest
+    command: streamlit run app/app_dashboard.py --server.address 0.0.0.0 --server.port 8501
+    environment:
+      PREDICTIONS_CSV: /app/artifacts/modeling/20260613-134558/evaluation/model_comparison/model_predictions_consolidated_wide_20260613-225146.csv
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "8501:8501"
+
+  mlflow:
+    build: .
+    image: projeto-ml-trained-demo:latest
+    working_dir: /app
+    command: mlflow ui --backend-store-uri sqlite:////app/artifacts/modeling/20260613-134558/mlflow.db --host 0.0.0.0 --port 5000
+    ports:
+      - "5000:5000"

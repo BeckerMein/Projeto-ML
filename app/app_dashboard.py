@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import plotly.express as px
 import streamlit as st
 import pandas as pd
@@ -13,14 +15,24 @@ st.markdown(
 )
 
 # --- CONFIGURAÇÃO DE CAMINHO ---
-PATH_PREDICOES = "../artifacts/modeling/20260613-134558/evaluation/model_comparison/model_predictions_consolidated_wide_20260613-225146.csv"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PREDICTIONS_CSV = (
+    PROJECT_ROOT
+    / "artifacts"
+    / "modeling"
+    / "20260613-134558"
+    / "evaluation"
+    / "model_comparison"
+    / "model_predictions_consolidated_wide_20260613-225146.csv"
+)
+PATH_PREDICOES = Path(os.environ.get("PREDICTIONS_CSV", DEFAULT_PREDICTIONS_CSV)).resolve()
 
 # --- CARREGAR DADOS ---
 @st.cache_data
 def carregar_dados():
-    if not os.path.exists(PATH_PREDICOES):
+    if not PATH_PREDICOES.exists():
         st.error(f"Ficheiro não encontrado no caminho: `{PATH_PREDICOES}`")
-        st.info("Coloque o ficheiro CSV no caminho correto ou atualize a variável PATH_PREDICOES no código.")
+        st.info("Coloque o ficheiro CSV no caminho correto ou defina a variável de ambiente PREDICTIONS_CSV.")
         st.stop()
         
     df = pd.read_csv(PATH_PREDICOES)
