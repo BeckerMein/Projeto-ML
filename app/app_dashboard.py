@@ -183,33 +183,62 @@ with tab2:
         st.dataframe(top_h[["city", col_hibrido_gen]].rename(columns={ "city": "Município", col_hibrido_gen: "Geração Híbrida (kWh/dia)"}).style.format({"Geração Híbrida (kWh/dia)": "{:.2f}"}))
 
 with tab3:
-    st.header("Métricas de Erro do Modelo")
+    st.header("Comparativo de NRMSE entre Modelos")
+    st.markdown("Analise o Erro Quadrático Médio Normalizado (NRMSE) comparando a performance do **Baseline**, **Random Forest** e **MLP** em todos os municípios.")
     
-    if modelo_selecionado == "Valores Reais (Histórico)":
-        st.info("Você selecionou os valores reais (Ground Truth). As métricas de erro são zero.")
+    # --- 1. BOTÃO DE SELEÇÃO DA MÉTRICA ---
+    metrica_erro = st.radio(
+        "Selecione a variável para análise de erro:",
+        ["Irradiação Solar", "Velocidade do Vento"],
+        horizontal=True
+    )
+    
+    # --- 2. MAPEAMENTO DIRETO DAS COLUNAS REAIS DO SEU CSV ---
+    if metrica_erro == "Irradiação Solar":
+        colunas_nrmse = {
+            'solar_daily_kwh_m2_day_nrmse_baseline': 'Baseline',
+            'solar_daily_kwh_m2_day_nrmse_random_forest': 'Random Forest',
+            'solar_daily_kwh_m2_day_nrmse_mlp': 'MLP'
+        }
+        titulo_eixo_y = "NRMSE da Irradiação Solar"
     else:
-        st.write(f"Análise dos erros absolutos diários para o modelo **{modelo_selecionado}**.")
+        colunas_nrmse = {
+            'wind_daily_mean_ms_nrmse_baseline': 'Baseline',
+            'wind_daily_mean_ms_nrmse_random_forest': 'Random Forest',
+            'wind_daily_mean_ms_nrmse_mlp': 'MLP'
+        }
+        titulo_eixo_y = "NRMSE da Velocidade do Vento"
         
-        col_err_solar = f"solar_daily_kwh_m2_day_abs_error{sufixo}"
-        col_err_vento = f"wind_daily_mean_ms_abs_error{sufixo}"
-        
-        df_erros = df_analise.groupby('city').agg({
-            col_err_solar: 'mean',
-            col_err_vento: 'mean'
-        }).reset_index()
-        
-        c_err1, c_err2 = st.columns(2)
-        with c_err1:
-            st.write("Erro Médio Absoluto (MAE) - Irradiação Solar por Cidade")
-            fig_err_s = px.bar(df_erros.sort_values(by=col_err_solar, ascending=False).head(15), x='city', y=col_err_solar, labels={'city': 'Cidade', col_err_solar: "MAE da Irradiação Solar (kWh/m²/dia)"})
-            fig_err_s.update_layout(yaxis=dict(range=[0, 4]))
-            st.plotly_chart(fig_err_s, use_container_width=True)
-            
-        with c_err2:
-            st.write("Erro Médio Absoluto (MAE) - Velocidade do Vento por Cidade")
-            fig_err_v = px.bar(df_erros.sort_values(by=col_err_vento, ascending=False).head(15), x='city', y=col_err_vento, labels={'city': 'Cidade', col_err_vento: "MAE da Velocidade do Vento (m/s)"})
-            fig_err_v.update_layout(yaxis=dict(range=[0, 4]))
-            st.plotly_chart(fig_err_v, use_container_width=True)
+    # --- 3. AGREGAÇÃO DOS DADOS (FORMATO WIDE REAL DO CSV) ---
+    # Pegamos as médias das colunas por cidade
+    df_erros_comp = df_analise.groupby('city')[list(colunas_nrmse.keys())].mean().reset_index()
+    
+    # Renomeamos para que a legenda do gráfico exiba os nomes bonitos ('Baseline', 'MLP', etc.)
+    df_erros_comp = df_erros_comp.rename(columns=colunas_nrmse)
+    
+    # --- 4. GRÁFICO DE BARRAS AGRUPADAS ---
+    fig_erros = px.bar(
+        df_erros_comp,
+        x='city',
+        y=list(colunas_nrmse.values()), # Passa a lista ['Baseline', 'Random Forest', 'MLP']
+        barmode='group',                # Força as barras a ficarem lado a lado
+        labels={
+            'city': 'Município', 
+            'value': titulo_eixo_y, 
+            'variable': 'Modelos'
+        },
+        color_discrete_sequence=px.colors.qualitative.Set2 # Cores diferentes para cada modelo
+    )
+    
+    # Ajustes finos do layout para visualização de todas as cidades
+    fig_erros.update_layout(
+        xaxis_tickangle=-45,
+        height=600,
+        margin={"b": 100},
+        legend_title_text="Modelos"
+    )
+    
+    st.plotly_chart(fig_erros, use_container_width=True)
 
 with tab4:
     st.header("Comparativo Temporal das Previsões")
