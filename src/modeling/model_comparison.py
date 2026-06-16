@@ -39,13 +39,20 @@ VALUE_COLUMNS = TARGET_COLUMNS + [WIND_HUB_HEIGHT_COLUMN] + ENERGY_RESULT_COLUMN
 PHYSICAL_COMPARISON_COLUMNS = TARGET_COLUMNS
 
 
-def _calculate_nrmse(consolidated: pd.DataFrame, column: str, model_name: str) -> float:
-    """Calcula NRMSE agregado para um par alvo/modelo no consolidado."""
+def _calculate_city_nrmse(consolidated: pd.DataFrame, column: str, model_name: str) -> pd.Series:
+    """Calcula NRMSE por municipio para um par alvo/modelo no consolidado."""
 
-    y_true = consolidated[[f"{column}_actual"]].rename(columns={f"{column}_actual": column})
-    y_pred = consolidated[[f"{column}_{model_name}"]].rename(columns={f"{column}_{model_name}": column})
-    metrics, _ = evaluate_predictions(y_true, y_pred, target_columns=[column])
-    return float(metrics.loc[0, "nrmse"])
+    result = pd.Series(index=consolidated.index, dtype=float)
+    actual_column = f"{column}_actual"
+    prediction_column = f"{column}_{model_name}"
+
+    for _, city_frame in consolidated.groupby("city", sort=False):
+        y_true = city_frame[[actual_column]].rename(columns={actual_column: column})
+        y_pred = city_frame[[prediction_column]].rename(columns={prediction_column: column})
+        metrics, _ = evaluate_predictions(y_true, y_pred, target_columns=[column])
+        result.loc[city_frame.index] = float(metrics.loc[0, "nrmse"])
+
+    return result
 
 
 def _resolve_path_from_env(project_root: Path, env_name: str) -> Path | None:
@@ -186,7 +193,7 @@ def build_consolidated_predictions(tables: dict[str, pd.DataFrame]) -> pd.DataFr
             consolidated[f"{column}_abs_error_{model_name}"] = (
                 consolidated[f"{column}_error_{model_name}"].abs()
             )
-            consolidated[f"{column}_nrmse_{model_name}"] = _calculate_nrmse(
+            consolidated[f"{column}_nrmse_{model_name}"] = _calculate_city_nrmse(
                 consolidated,
                 column,
                 model_name,

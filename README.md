@@ -240,7 +240,7 @@ model_comparison_metrics_*.csv
 model_comparison_manifest_*.json
 ```
 
-Os CSVs consolidados de predicoes incluem valores reais, predicoes, erro, erro absoluto e NRMSE por modelo/alvo.
+Os CSVs consolidados de predicoes incluem valores reais, predicoes, erro, erro absoluto e NRMSE por municipio, modelo e alvo.
 
 ### Demonstração Com Docker
 
